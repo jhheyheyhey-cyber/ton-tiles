@@ -21,6 +21,7 @@
   --lane:#221d2f; --tile:#efeaf8; --tile-next:#8f74ff; --done:#3fd197; --wrong:#ff6b80;
   --key:#efeaf8; --key-edge:#3a3349; color-scheme:dark}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--display);
   padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px));
@@ -77,11 +78,12 @@ canvas{display:block;width:100%;height:100%}
 const NAMES=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','B','H'];
 const LANE_OF_PC=[0,0,1,1,2,3,3,4,4,5,5,6]; // Kreuz-Töne landen auf der Bahn darunter
 const WHITE_PC=[0,2,4,5,7,9,11];
+// [MIDI-Ton, Länge in Vierteln]
 const SONGS={
-  "Alle meine Entchen":[60,62,64,65,67,67,69,69,69,69,67,69,69,69,69,67,65,65,65,65,64,64,62,62,62,62,60],
-  "Ode an die Freude":[64,64,65,67,67,65,64,62,60,60,62,64,64,62,62,64,64,65,67,67,65,64,62,60,60,62,64,62,60,60],
-  "Hänschen klein":[67,64,64,65,62,62,60,62,64,65,67,67,67,67,64,64,65,62,62,60,64,67,67,60],
-  "C-Dur Tonleiter":[60,62,64,65,67,69,71,72,71,69,67,65,64,62,60]
+  "Alle meine Entchen":{bpm:100,n:[[60,1],[62,1],[64,1],[65,1],[67,2],[67,2],[69,1],[69,1],[69,1],[69,1],[67,4],[69,1],[69,1],[69,1],[69,1],[67,4],[65,1],[65,1],[65,1],[65,1],[64,2],[64,2],[62,1],[62,1],[62,1],[62,1],[60,4]]},
+  "Ode an die Freude":{bpm:100,n:[[64,1],[64,1],[65,1],[67,1],[67,1],[65,1],[64,1],[62,1],[60,1],[60,1],[62,1],[64,1],[64,1.5],[62,.5],[62,2],[64,1],[64,1],[65,1],[67,1],[67,1],[65,1],[64,1],[62,1],[60,1],[60,1],[62,1],[64,1],[62,1.5],[60,.5],[60,2]]},
+  "Hänschen klein":{bpm:110,n:[[67,1],[64,1],[64,2],[65,1],[62,1],[62,2],[60,1],[62,1],[64,1],[65,1],[67,1],[67,1],[67,2],[67,1],[64,1],[64,2],[65,1],[62,1],[62,2],[60,1],[64,1],[67,1],[67,1],[60,4]]},
+  "C-Dur Tonleiter":{bpm:90,n:[[60,1],[62,1],[64,1],[65,1],[67,1],[69,1],[71,1],[72,2],[71,1],[69,1],[67,1],[65,1],[64,1],[62,1],[60,2]]}
 };
 const noteName=m=>NAMES[((m%12)+12)%12]+(Math.floor(m/12)-1);
 
@@ -97,8 +99,11 @@ WHITE_PC.forEach((pc,i)=>{const b=document.createElement('button');b.textContent
   b.addEventListener('pointerdown',()=>{flashKey(i);tryHit(60+pc,true)});$('keys').append(b)});
 function flashKey(i){const b=$('k'+i);b.classList.add('lit');setTimeout(()=>b.classList.remove('lit'),180)}
 
-let notes=[],idx=0,scroll=0,started=false,wrongFlash=0,doneAt=0,startTime=0;
-function reset(){notes=SONGS[songSel.value];idx=0;scroll=0;doneAt=0;startTime=performance.now();updateWant()}
+let notes=[],starts=[],lens=[],bpm=100,totalBeats=0,idx=0,pos=0,lastFrame=0,started=false,wrongFlash=0,doneAt=0,startTime=0;
+function reset(){
+  const s=SONGS[songSel.value];bpm=s.bpm;notes=s.n.map(x=>x[0]);lens=s.n.map(x=>x[1]);
+  starts=[];let b=0;lens.forEach(l=>{starts.push(b);b+=l});totalBeats=b;
+  idx=0;pos=0;doneAt=0;startTime=performance.now();updateWant()}
 function updateWant(){$('want').textContent=idx<notes.length?`Nächster: ${noteName(notes[idx])} · ${idx}/${notes.length}`:`Fertig · ${notes.length}/${notes.length}`}
 songSel.onchange=()=>{try{localStorage.setItem('tt-song',songSel.value)}catch(e){}reset()};
 $('strict').onchange=e=>{try{localStorage.setItem('tt-strict',e.target.checked?'1':'0')}catch(err){}};
@@ -113,7 +118,6 @@ function tryHit(midi,fromTap){
   if(matches(midi,notes[idx],fromTap)){
     idx++;armed=false;lastHitAt=performance.now();updateWant();
     if(navigator.vibrate)navigator.vibrate(15);
-    if(idx>=notes.length)doneAt=performance.now();
   }else if(fromTap){wrongFlash=performance.now()}
 }
 
@@ -180,28 +184,42 @@ addEventListener('resize',resize);resize();
 
 function draw(t){
   listen();
-  const W=cv.clientWidth,H=cv.clientHeight,laneW=W/7,tileH=Math.max(70,H/5),hitY=H-24;
-  scroll+=(idx-scroll)*0.18;
+  const W=cv.clientWidth,H=cv.clientHeight,laneW=W/7,ppb=Math.max(56,H/6),hitY=H-Math.max(60,H*.18);
+  // Position (in Vierteln) gleitet im Liedtempo bis zum Anfang der nächsten wartenden Note
+  const dt=Math.min(.05,(t-(lastFrame||t))/1000);lastFrame=t;
+  const limit=idx<notes.length?starts[idx]:totalBeats,gap=limit-pos;
+  if(gap>0){const speed=Math.max(bpm/60,gap*5);pos=Math.min(limit,pos+speed*dt)}
+  if(!doneAt&&started&&idx>=notes.length&&pos>=totalBeats-1e-6)doneAt=performance.now();
   ctx.fillStyle=colors['--lane'];ctx.fillRect(0,0,W,H);
-  ctx.strokeStyle=colors['--bg'];ctx.lineWidth=2;
+  // Taktraster: dünne Linie pro Viertel, kräftiger pro Takt
+  for(let b=Math.floor(pos-(H-hitY)/ppb);b<=pos+hitY/ppb+1;b++){
+    const y=hitY-(b-pos)*ppb;ctx.fillStyle=colors['--muted'];
+    ctx.globalAlpha=b%4===0?.28:.09;ctx.fillRect(0,y,W,b%4===0?2:1)}
+  ctx.globalAlpha=1;ctx.strokeStyle=colors['--bg'];ctx.lineWidth=2;
   for(let i=1;i<7;i++){ctx.beginPath();ctx.moveTo(i*laneW,0);ctx.lineTo(i*laneW,H);ctx.stroke()}
-  // Trefferlinie
-  ctx.fillStyle=colors['--tile-next'];ctx.globalAlpha=.35;ctx.fillRect(0,hitY,W,3);ctx.globalAlpha=1;
   ctx.font='600 14px "IBM Plex Mono",monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-  for(let i=Math.max(0,idx-3);i<notes.length;i++){
-    const y=hitY-(i-scroll+1)*tileH;if(y>H)continue;if(y+tileH<0)break;
-    const lane=LANE_OF_PC[notes[i]%12],x=lane*laneW+3;
+  for(let i=0;i<notes.length;i++){
+    const bottom=hitY-(starts[i]-pos)*ppb,h=lens[i]*ppb,top=bottom-h;
+    if(top>H)continue;if(bottom<0)break;
+    const lane=LANE_OF_PC[notes[i]%12],x=lane*laneW+3,w=laneW-6;
+    const playing=i<idx&&pos<starts[i]+lens[i];
     let col=colors['--tile'];
-    if(i<idx){col=colors['--done'];ctx.globalAlpha=Math.max(0,1-(scroll-i)*0.4)}
-    else if(i===idx){col=(t-wrongFlash<200)?colors['--wrong']:colors['--tile-next']}
-    ctx.fillStyle=col;roundRect(x,y+3,laneW-6,tileH-6,8);ctx.fill();
-    ctx.fillStyle=i===idx||i<idx?'#fff':colors['--lane'];
-    ctx.fillText(noteName(notes[i]),x+(laneW-6)/2,y+tileH/2);
-    ctx.globalAlpha=1;
-    if(i===idx&&started&&idx<notes.length){ // pulsierender Rahmen am wartenden Tile
+    if(i<idx)col=colors['--done'];
+    else if(i===idx)col=(t-wrongFlash<200)?colors['--wrong']:colors['--tile-next'];
+    ctx.fillStyle=col;roundRect(x,top+2,w,h-4,8);ctx.fill();
+    if(playing){ // klingende Note leuchtet, solange sie durch die Linie läuft
+      ctx.globalAlpha=.35+.25*Math.sin(t/90);ctx.fillStyle='#fff';
+      roundRect(x+3,Math.max(top+5,0),w-6,Math.max(0,hitY-Math.max(top+5,0)),6);ctx.fill();ctx.globalAlpha=1}
+    ctx.fillStyle=i<=idx?'#fff':colors['--lane'];
+    const ly=Math.min(bottom-16,Math.max(top+16,Math.min(hitY-16,bottom-16)));
+    ctx.fillText(noteName(notes[i]),x+w/2,ly);
+    if(i===idx&&started){ // pulsierender Rahmen am wartenden Tile
       ctx.strokeStyle=colors['--tile-next'];ctx.lineWidth=2;ctx.globalAlpha=.4+.3*Math.sin(t/200);
-      roundRect(x-2,y+1,laneW-2,tileH-2,10);ctx.stroke();ctx.globalAlpha=1}
+      roundRect(x-2,top,w+4,h,10);ctx.stroke();ctx.globalAlpha=1}
   }
+  // Bereich unter der Trefferlinie abdunkeln = schon gespielt
+  ctx.fillStyle=colors['--lane'];ctx.globalAlpha=.72;ctx.fillRect(0,hitY,W,H-hitY);ctx.globalAlpha=1;
+  ctx.fillStyle=colors['--tile-next'];ctx.fillRect(0,hitY-1.5,W,3);
   if(doneAt){
     const secs=((doneAt-startTime)/1000).toFixed(1);
     ctx.fillStyle=colors['--fg'];ctx.font='800 28px "Bricolage Grotesque",sans-serif';
