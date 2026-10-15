@@ -56,6 +56,7 @@ canvas{display:block;width:100%;height:100%}
   <h1>Ton-Tiles</h1>
   <select id="song" aria-label="Lied"></select>
   <label class="chk"><input type="checkbox" id="strict"> Oktave prüfen</label>
+  <button id="back" aria-label="Eine Note zurück">◀ Zurück</button>
   <button id="restart">Neu</button>
 </header>
 <div id="stage">
@@ -234,6 +235,8 @@ function draw(t){
 // ---------- Spulen: Wischen auf der Spielfläche oder Mausrad ----------
 let lastPpb=60,dragging=false,dragY=0,dragPos=0,wheelTimer=null;
 cv.style.touchAction='none';
+$('back').onclick=()=>{if(!started)return;idx=Math.max(0,Math.min(idx,notes.length)-1);
+  doneAt=0;armed=false;lastHitAt=performance.now();updateWant()};
 function snapToNearest(){
   let best=0,bd=Infinity;
   starts.forEach((s,i)=>{const d=Math.abs(s-pos);if(d<bd){bd=d;best=i}});
