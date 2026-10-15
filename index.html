@@ -62,7 +62,7 @@ canvas{display:block;width:100%;height:100%}
   <canvas id="cv"></canvas>
   <div id="overlay">
     <strong id="ovTitle">Spiel den Ton, dann geht's weiter</strong>
-    <p id="ovText">Stell das Handy ans Klavier. Die App hört über das Mikrofon zu und schiebt erst weiter, wenn du die richtige Taste spielst.</p>
+    <p id="ovText">Stell das Handy ans Klavier. Die App hört über das Mikrofon zu und schiebt erst weiter, wenn du die richtige Taste spielst. Zum Zurückspulen auf der Spielfläche nach oben wischen.</p>
     <button class="primary" id="start">Mikrofon starten</button>
     <button id="tapOnly">Ohne Mikrofon testen</button>
   </div>
@@ -188,7 +188,9 @@ function draw(t){
   // Position (in Vierteln) gleitet im Liedtempo bis zum Anfang der nächsten wartenden Note
   const dt=Math.min(.05,(t-(lastFrame||t))/1000);lastFrame=t;
   const limit=idx<notes.length?starts[idx]:totalBeats,gap=limit-pos;
-  if(gap>0){const speed=Math.max(bpm/60,gap*5);pos=Math.min(limit,pos+speed*dt)}
+  lastPpb=ppb;
+  if(!dragging&&gap>0){const speed=Math.max(bpm/60,gap*5);pos=Math.min(limit,pos+speed*dt)}
+  else if(!dragging&&gap<0){pos=Math.max(limit,pos+gap*Math.min(1,dt*14))}
   if(!doneAt&&started&&idx>=notes.length&&pos>=totalBeats-1e-6)doneAt=performance.now();
   ctx.fillStyle=colors['--lane'];ctx.fillRect(0,0,W,H);
   // Taktraster: dünne Linie pro Viertel, kräftiger pro Takt
@@ -229,6 +231,24 @@ function draw(t){
   }
   requestAnimationFrame(draw);
 }
+// ---------- Spulen: Wischen auf der Spielfläche oder Mausrad ----------
+let lastPpb=60,dragging=false,dragY=0,dragPos=0,wheelTimer=null;
+cv.style.touchAction='none';
+function snapToNearest(){
+  let best=0,bd=Infinity;
+  starts.forEach((s,i)=>{const d=Math.abs(s-pos);if(d<bd){bd=d;best=i}});
+  if(pos>=totalBeats-.25)best=notes.length;
+  idx=best;doneAt=0;armed=false;lastHitAt=performance.now();updateWant();
+}
+cv.addEventListener('pointerdown',e=>{if(!started)return;dragging=true;dragY=e.clientY;dragPos=pos;cv.setPointerCapture(e.pointerId)});
+cv.addEventListener('pointermove',e=>{if(!dragging)return;
+  pos=Math.max(0,Math.min(totalBeats,dragPos+(e.clientY-dragY)/lastPpb))});
+const endDrag=()=>{if(!dragging)return;dragging=false;snapToNearest()};
+cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
+cv.addEventListener('wheel',e=>{if(!started)return;e.preventDefault();dragging=true;
+  pos=Math.max(0,Math.min(totalBeats,pos+e.deltaY/lastPpb*.6));
+  clearTimeout(wheelTimer);wheelTimer=setTimeout(()=>{dragging=false;snapToNearest()},220)},{passive:false});
+
 function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
 reset();requestAnimationFrame(draw);
 </script>
