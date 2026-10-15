@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ton-Tiles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: one-screen app — Kopfzeile, Spielfläche mit 7 Bahnen, Hörer-Anzeige, Klaviatur */
+:root{
+  --bg:#f3f1f6; --panel:#ffffff; --fg:#1d1a26; --muted:#6d6780;
+  --lane:#e6e2ee; --tile:#2a2338; --tile-next:#5b3fd1; --done:#2fae7a; --wrong:#d9485f;
+  --key:#ffffff; --key-edge:#cfc9da;
+  --display:"Bricolage Grotesque",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#14111c; --panel:#1e1a29; --fg:#f1eef7; --muted:#9a93ad;
+  --lane:#221d2f; --tile:#efeaf8; --tile-next:#8f74ff; --done:#3fd197; --wrong:#ff6b80;
+  --key:#efeaf8; --key-edge:#3a3349; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--display);
+  padding:env(safe-area-inset-top,0) max(12px,env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0) max(12px,env(safe-area-inset-left,0px));
+  display:flex;flex-direction:column;overflow:hidden;-webkit-user-select:none;user-select:none}
+header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-block:10px}
+h1{font-size:1.25rem;font-weight:800;margin:0;letter-spacing:-.02em;flex:1 1 auto}
+select,button{font:600 .9rem var(--display);color:var(--fg);background:var(--panel);
+  border:1px solid var(--key-edge);border-radius:10px;padding:8px 12px}
+button.primary{background:var(--tile-next);color:#fff;border-color:transparent}
+button:focus-visible,select:focus-visible{outline:2px solid var(--tile-next);outline-offset:2px}
+label.chk{font-size:.8rem;color:var(--muted);display:flex;gap:6px;align-items:center}
+#stage{position:relative;flex:1 1 auto;min-height:0;border-radius:14px;overflow:hidden;background:var(--lane)}
+canvas{display:block;width:100%;height:100%}
+#overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;text-align:center;padding:20px;background:color-mix(in srgb,var(--bg) 82%,transparent)}
+#overlay p{margin:0;max-width:30ch;color:var(--muted);line-height:1.4}
+#overlay strong{font-size:1.6rem;color:var(--fg)}
+#hud{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding-block:8px}
+#heard{font:600 1.5rem var(--mono)}
+#want{font:500 .85rem var(--mono);color:var(--muted);text-align:right}
+#meter{grid-column:1/-1;height:6px;border-radius:3px;background:var(--lane);overflow:hidden}
+#meter i{display:block;height:100%;width:0;background:var(--tile-next);transition:width .05s}
+#keys{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;height:64px;margin-bottom:10px}
+#keys button{background:var(--key);color:#1d1a26;border:1px solid var(--key-edge);border-radius:0 0 8px 8px;
+  font:600 .85rem var(--mono);display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px}
+#keys button.lit{background:var(--tile-next);color:#fff}
+@media (prefers-reduced-motion:reduce){#meter i{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Ton-Tiles</h1>
+  <select id="song" aria-label="Lied"></select>
+  <label class="chk"><input type="checkbox" id="strict"> Oktave prüfen</label>
+  <button id="restart">Neu</button>
+</header>
+<div id="stage">
+  <canvas id="cv"></canvas>
+  <div id="overlay">
+    <strong id="ovTitle">Spiel den Ton, dann geht's weiter</strong>
+    <p id="ovText">Stell das Handy ans Klavier. Die App hört über das Mikrofon zu und schiebt erst weiter, wenn du die richtige Taste spielst.</p>
+    <button class="primary" id="start">Mikrofon starten</button>
+    <button id="tapOnly">Ohne Mikrofon testen</button>
+  </div>
+</div>
+<div id="hud">
+  <div id="heard">–</div>
+  <div id="want">Nächster: –</div>
+  <div id="meter"><i></i></div>
+</div>
+<div id="keys"></div>
+
+<script>
+const NAMES=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','B','H'];
+const LANE_OF_PC=[0,0,1,1,2,3,3,4,4,5,5,6]; // Kreuz-Töne landen auf der Bahn darunter
+const WHITE_PC=[0,2,4,5,7,9,11];
+const SONGS={
+  "Alle meine Entchen":[60,62,64,65,67,67,69,69,69,69,67,69,69,69,69,67,65,65,65,65,64,64,62,62,62,62,60],
+  "Ode an die Freude":[64,64,65,67,67,65,64,62,60,60,62,64,64,62,62,64,64,65,67,67,65,64,62,60,60,62,64,62,60,60],
+  "Hänschen klein":[67,64,64,65,62,62,60,62,64,65,67,67,67,67,64,64,65,62,62,60,64,67,67,60],
+  "C-Dur Tonleiter":[60,62,64,65,67,69,71,72,71,69,67,65,64,62,60]
+};
+const noteName=m=>NAMES[((m%12)+12)%12]+(Math.floor(m/12)-1);
+
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const songSel=$('song');
+Object.keys(SONGS).forEach(n=>{const o=document.createElement('option');o.textContent=n;songSel.append(o)});
+try{const s=localStorage.getItem('tt-song');if(s&&SONGS[s])songSel.value=s;
+  $('strict').checked=localStorage.getItem('tt-strict')==='1'}catch(e){}
+
+// Klaviatur (auch zum Testen per Tippen)
+WHITE_PC.forEach((pc,i)=>{const b=document.createElement('button');b.textContent=NAMES[pc];b.id='k'+i;
+  b.addEventListener('pointerdown',()=>{flashKey(i);tryHit(60+pc,true)});$('keys').append(b)});
+function flashKey(i){const b=$('k'+i);b.classList.add('lit');setTimeout(()=>b.classList.remove('lit'),180)}
+
+let notes=[],idx=0,scroll=0,started=false,wrongFlash=0,doneAt=0,startTime=0;
+function reset(){notes=SONGS[songSel.value];idx=0;scroll=0;doneAt=0;startTime=performance.now();updateWant()}
+function updateWant(){$('want').textContent=idx<notes.length?`Nächster: ${noteName(notes[idx])} · ${idx}/${notes.length}`:`Fertig · ${notes.length}/${notes.length}`}
+songSel.onchange=()=>{try{localStorage.setItem('tt-song',songSel.value)}catch(e){}reset()};
+$('strict').onchange=e=>{try{localStorage.setItem('tt-strict',e.target.checked?'1':'0')}catch(err){}};
+$('restart').onclick=reset;
+
+function matches(played,target,fromTap){
+  if($('strict').checked&&!fromTap)return played===target;
+  return ((played-target)%12+12)%12===0;
+}
+function tryHit(midi,fromTap){
+  if(!started||idx>=notes.length)return;
+  if(matches(midi,notes[idx],fromTap)){
+    idx++;armed=false;peakSinceHit=lastRms;updateWant();
+    if(navigator.vibrate)navigator.vibrate(15);
+    if(idx>=notes.length)doneAt=performance.now();
+  }else if(fromTap){wrongFlash=performance.now()}
+}
+
+// ---------- Tonerkennung ----------
+let audioCtx,analyser,buf,lastRms=0,peakSinceHit=0,armed=true,stableMidi=null,stableCount=0,rmsHist=[];
+const GATE=0.012;
+function detectPitch(b,sr){
+  const n=b.length;let rms=0;for(let i=0;i<n;i++)rms+=b[i]*b[i];rms=Math.sqrt(rms/n);
+  if(rms<GATE)return{rms,f:-1};
+  const minLag=Math.floor(sr/2100),maxLag=Math.min(Math.floor(sr/55),n>>1);
+  const c=new Float32Array(maxLag+2);
+  for(let lag=0;lag<=maxLag+1;lag++){let s=0;for(let i=0;i<n-lag;i++)s+=b[i]*b[i+lag];c[lag]=s}
+  let d=minLag;while(d<maxLag&&c[d]>c[d+1])d++;
+  let best=-1,bestV=-Infinity;for(let i=d;i<=maxLag;i++)if(c[i]>bestV){bestV=c[i];best=i}
+  if(best<=0||bestV<c[0]*0.3)return{rms,f:-1};
+  // kleinsten Lag nehmen, der fast so stark ist (gegen Oktavfehler nach unten)
+  for(let i=d;i<best;i++){if(c[i]>bestV*0.92&&c[i]>=c[i-1]&&c[i]>=c[i+1]){best=i;break}}
+  const x1=c[best-1],x2=c[best],x3=c[best+1],a=(x1+x3-2*x2)/2,bb=(x3-x1)/2;
+  const T=a?best-bb/(2*a):best;
+  return{rms,f:sr/T};
+}
+function listen(){
+  if(!analyser)return;
+  analyser.getFloatTimeDomainData(buf);
+  const {rms,f}=detectPitch(buf,audioCtx.sampleRate);
+  lastRms=rms;
+  rmsHist.push(rms);if(rmsHist.length>8)rmsHist.shift();
+  const recentMin=Math.min(...rmsHist);
+  // neuen Anschlag erkennen: Lautstärke fällt deutlich ab oder steigt sprunghaft
+  if(!armed){peakSinceHit=Math.max(peakSinceHit,rms);
+    if(rms<peakSinceHit*0.45||rms<GATE||rms>recentMin*1.8)armed=true}
+  $('meter').firstElementChild.style.width=Math.min(100,rms*600)+'%';
+  if(f>0){
+    const mf=69+12*Math.log2(f/440),m=Math.round(mf),cents=Math.round((mf-m)*100);
+    $('heard').textContent=`${noteName(m)}  ${f.toFixed(0)} Hz  ${cents>=0?'+':''}${cents}¢`;
+    if(m===stableMidi)stableCount++;else{stableMidi=m;stableCount=1}
+    if(stableCount>=3&&armed)tryHit(m,false);
+  }else{stableMidi=null;stableCount=0;if(rms<GATE)$('heard').textContent='–'}
+}
+async function startMic(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const src=audioCtx.createMediaStreamSource(stream);
+    analyser=audioCtx.createAnalyser();analyser.fftSize=2048;buf=new Float32Array(analyser.fftSize);
+    src.connect(analyser);
+    try{await navigator.wakeLock?.request('screen')}catch(e){}
+    begin();
+  }catch(e){
+    $('ovTitle').textContent='Kein Mikrofon-Zugriff';
+    $('ovText').textContent='Erlaube das Mikrofon in den Browser-Einstellungen. Die Seite muss über https:// geöffnet sein.';
+  }
+}
+function begin(){started=true;$('overlay').hidden=true;reset()}
+$('start').onclick=startMic;
+$('tapOnly').onclick=begin;
+
+// ---------- Zeichnen ----------
+function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
+let colors={};function readColors(){['--lane','--tile','--tile-next','--done','--wrong','--bg','--muted','--fg'].forEach(k=>colors[k]=css(k))}
+readColors();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',readColors);
+function resize(){const r=cv.getBoundingClientRect(),dpr=devicePixelRatio||1;cv.width=r.width*dpr;cv.height=r.height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+
+function draw(t){
+  listen();
+  const W=cv.clientWidth,H=cv.clientHeight,laneW=W/7,tileH=Math.max(70,H/5),hitY=H-24;
+  scroll+=(idx-scroll)*0.18;
+  ctx.fillStyle=colors['--lane'];ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle=colors['--bg'];ctx.lineWidth=2;
+  for(let i=1;i<7;i++){ctx.beginPath();ctx.moveTo(i*laneW,0);ctx.lineTo(i*laneW,H);ctx.stroke()}
+  // Trefferlinie
+  ctx.fillStyle=colors['--tile-next'];ctx.globalAlpha=.35;ctx.fillRect(0,hitY,W,3);ctx.globalAlpha=1;
+  ctx.font='600 14px "IBM Plex Mono",monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+  for(let i=Math.max(0,idx-3);i<notes.length;i++){
+    const y=hitY-(i-scroll+1)*tileH;if(y>H)continue;if(y+tileH<0)break;
+    const lane=LANE_OF_PC[notes[i]%12],x=lane*laneW+3;
+    let col=colors['--tile'];
+    if(i<idx){col=colors['--done'];ctx.globalAlpha=Math.max(0,1-(scroll-i)*0.4)}
+    else if(i===idx){col=(t-wrongFlash<200)?colors['--wrong']:colors['--tile-next']}
+    ctx.fillStyle=col;roundRect(x,y+3,laneW-6,tileH-6,8);ctx.fill();
+    ctx.fillStyle=i===idx||i<idx?'#fff':colors['--lane'];
+    ctx.fillText(noteName(notes[i]),x+(laneW-6)/2,y+tileH/2);
+    ctx.globalAlpha=1;
+    if(i===idx&&started&&idx<notes.length){ // pulsierender Rahmen am wartenden Tile
+      ctx.strokeStyle=colors['--tile-next'];ctx.lineWidth=2;ctx.globalAlpha=.4+.3*Math.sin(t/200);
+      roundRect(x-2,y+1,laneW-2,tileH-2,10);ctx.stroke();ctx.globalAlpha=1}
+  }
+  if(doneAt){
+    const secs=((doneAt-startTime)/1000).toFixed(1);
+    ctx.fillStyle=colors['--fg'];ctx.font='800 28px "Bricolage Grotesque",sans-serif';
+    ctx.fillText('Geschafft!',W/2,H/2-18);
+    ctx.font='500 15px "IBM Plex Mono",monospace';ctx.fillStyle=colors['--muted'];
+    ctx.fillText(`${notes.length} Töne in ${secs} s`,W/2,H/2+16);
+  }
+  requestAnimationFrame(draw);
+}
+function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath()}
+reset();requestAnimationFrame(draw);
+</script>
+</body>
+</html>
