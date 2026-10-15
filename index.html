@@ -114,6 +114,15 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 </div>
 
 <script>
+// Neue Version automatisch laden (GitHub hält alte Versionen bis zu 10 Min. im Zwischenspeicher)
+const BUILD='1792094087';
+fetch(location.pathname+'?nc='+Date.now(),{cache:'no-store'}).then(r=>r.text()).then(t=>{
+  const m=/const BUILD='([^']+)'/.exec(t);
+  if(m&&m[1]!==BUILD&&!sessionStorage.getItem('tt-reload-'+m[1])){
+    try{sessionStorage.setItem('tt-reload-'+m[1],'1')}catch(e){}
+    location.replace(location.pathname+'?v='+m[1]);
+  }
+}).catch(()=>{});
 // Tonprüfung — Tonprüfung über das Spektrum (wird in index.html eingebettet)
 const noteFreq=m=>440*Math.pow(2,(m-69)/12);
 const SEMI=Math.pow(2,1/12);
