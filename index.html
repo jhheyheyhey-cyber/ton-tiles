@@ -111,14 +111,14 @@ function matches(played,target,fromTap){
 function tryHit(midi,fromTap){
   if(!started||idx>=notes.length)return;
   if(matches(midi,notes[idx],fromTap)){
-    idx++;armed=false;peakSinceHit=lastRms;updateWant();
+    idx++;armed=false;lastHitAt=performance.now();updateWant();
     if(navigator.vibrate)navigator.vibrate(15);
     if(idx>=notes.length)doneAt=performance.now();
   }else if(fromTap){wrongFlash=performance.now()}
 }
 
 // ---------- Tonerkennung ----------
-let audioCtx,analyser,buf,lastRms=0,peakSinceHit=0,armed=true,stableMidi=null,stableCount=0,rmsHist=[];
+let audioCtx,analyser,buf,lastRms=0,lastHitAt=0,armed=false,stableMidi=null,stableCount=0,rmsHist=[];
 const GATE=0.012;
 function detectPitch(b,sr){
   const n=b.length;let rms=0;for(let i=0;i<n;i++)rms+=b[i]*b[i];rms=Math.sqrt(rms/n);
@@ -140,11 +140,11 @@ function listen(){
   analyser.getFloatTimeDomainData(buf);
   const {rms,f}=detectPitch(buf,audioCtx.sampleRate);
   lastRms=rms;
-  rmsHist.push(rms);if(rmsHist.length>8)rmsHist.shift();
-  const recentMin=Math.min(...rmsHist);
-  // neuen Anschlag erkennen: Lautstärke fällt deutlich ab oder steigt sprunghaft
-  if(!armed){peakSinceHit=Math.max(peakSinceHit,rms);
-    if(rms<peakSinceHit*0.45||rms<GATE||rms>recentMin*1.8)armed=true}
+  // Neuer Anschlag = Lautstärke springt deutlich nach oben (Ausklingen zählt nicht)
+  const recentMin=rmsHist.length?Math.min(...rmsHist):0;
+  const now=performance.now();
+  if(rms>GATE*1.5&&rms>recentMin*1.7&&now-lastHitAt>150){armed=true;stableMidi=null;stableCount=0}
+  rmsHist.push(rms);if(rmsHist.length>10)rmsHist.shift();
   $('meter').firstElementChild.style.width=Math.min(100,rms*600)+'%';
   if(f>0){
     const mf=69+12*Math.log2(f/440),m=Math.round(mf),cents=Math.round((mf-m)*100);
