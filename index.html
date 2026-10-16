@@ -115,7 +115,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 
 <script>
 // Neue Version automatisch laden (GitHub hält alte Versionen bis zu 10 Min. im Zwischenspeicher)
-const BUILD='1792094087';
+const BUILD='1792132625';
 fetch(location.pathname+'?nc='+Date.now(),{cache:'no-store'}).then(r=>r.text()).then(t=>{
   const m=/const BUILD='([^']+)'/.exec(t);
   if(m&&m[1]!==BUILD&&!sessionStorage.getItem('tt-reload-'+m[1])){
@@ -206,7 +206,7 @@ function parseVoice(str,hand){
 const R=(s,n)=>(s+' ').repeat(n);
 const SONGS=[
  {id:'entchen',t:'Alle meine Entchen',c:'Volkslied',lv:1,bpm:100,v:[['r','C4/1 D4/1 E4/1 F4/1 G4/2 G4/2 A4/1 A4/1 A4/1 A4/1 G4/4 A4/1 A4/1 A4/1 A4/1 G4/4 F4/1 F4/1 F4/1 F4/1 E4/2 E4/2 D4/1 D4/1 D4/1 D4/1 C4/4']]},
- {id:'haenschen',t:'Hänschen klein',c:'Volkslied',lv:1,bpm:110,v:[['r','G4/1 E4/1 E4/2 F4/1 D4/1 D4/2 C4/1 D4/1 E4/1 F4/1 G4/1 G4/1 G4/2 G4/1 E4/1 E4/2 F4/1 D4/1 D4/2 C4/1 E4/1 G4/1 G4/1 C4/4']]},
+ {id:'haenschen',t:'Hänschen klein',c:'Volkslied',lv:1,bpm:110,v:[['r','G4/1 E4/1 E4/2 F4/1 D4/1 D4/2 C4/1 D4/1 E4/1 F4/1 G4/1 G4/1 G4/2 G4/1 E4/1 E4/2 F4/1 D4/1 D4/2 C4/1 E4/1 G4/1 G4/1 C4/4 D4/1 D4/1 D4/1 D4/1 D4/1 E4/1 F4/2 E4/1 E4/1 E4/1 E4/1 E4/1 F4/1 G4/2 G4/1 E4/1 E4/2 F4/1 D4/1 D4/2 C4/1 E4/1 G4/1 G4/1 C4/4']]},
  {id:'tonleiter',t:'C-Dur über zwei Oktaven',c:'Übung',lv:1,bpm:100,v:[['r','C4/1 D4/1 E4/1 F4/1 G4/1 A4/1 B4/1 C5/1 D5/1 E5/1 F5/1 G5/1 A5/1 B5/1 C6/2 B5/1 A5/1 G5/1 F5/1 E5/1 D5/1 C5/1 B4/1 A4/1 G4/1 F4/1 E4/1 D4/1 C4/2']]},
  {id:'twinkle',t:'Morgen kommt der Weihnachtsmann',c:'Mozart-Thema · beidhändig',lv:2,bpm:100,v:[
    ['r','C4/1 C4/1 G4/1 G4/1 A4/1 A4/1 G4/2 F4/1 F4/1 E4/1 E4/1 D4/1 D4/1 C4/2 G4/1 G4/1 F4/1 F4/1 E4/1 E4/1 D4/2 G4/1 G4/1 F4/1 F4/1 E4/1 E4/1 D4/2 C4/1 C4/1 G4/1 G4/1 A4/1 A4/1 G4/2 F4/1 F4/1 E4/1 E4/1 D4/1 D4/1 C4/2'],
@@ -214,13 +214,13 @@ const SONGS=[
  {id:'ode',t:'Ode an die Freude',c:'Beethoven · beidhändig',lv:2,bpm:100,v:[
    ['r','E4/1 E4/1 F4/1 G4/1 G4/1 F4/1 E4/1 D4/1 C4/1 C4/1 D4/1 E4/1 E4/1.5 D4/.5 D4/2 E4/1 E4/1 F4/1 G4/1 G4/1 F4/1 E4/1 D4/1 C4/1 C4/1 D4/1 E4/1 D4/1.5 C4/.5 C4/2'],
    ['l','C3/4 G2/4 C3/4 G2/4 C3/4 G2/4 C3/4 G2/2 C3/2']]},
- {id:'menuett',t:'Menuett in G',c:'Petzold · Begleitung vereinfacht',lv:2,bpm:120,v:[
+ {id:'menuett',t:'Menuett in G',c:'Petzold · beidhändig',lv:2,bpm:120,bar:3,v:[
    ['r','D5/1 G4/.5 A4/.5 B4/.5 C5/.5 D5/1 G4/1 G4/1 E5/1 C5/.5 D5/.5 E5/.5 F#5/.5 G5/1 G4/1 G4/1 C5/1 D5/.5 C5/.5 B4/.5 A4/.5 B4/1 C5/.5 B4/.5 A4/.5 G4/.5 F#4/1 G4/.5 A4/.5 B4/.5 G4/.5 A4/3'],
-   ['l','G3+B3/2 A3/1 B3/3 C4/3 B3/3 A3/3 G3/3 D4/2 B3/1 D4/1 D3/1 C4/1']]},
- {id:'elise',t:'Für Elise (Anfang)',c:'Beethoven · beidhändig',lv:3,bpm:140,v:[
+   ['l','G3+B3+D4/2 A3/1 B3/3 C4/3 B3/3 A3/3 G3/3 D4/1 B3/1 G3/1 D4/1 D3/.5 C4/.5 B3/.5 A3/.5']]},
+ {id:'elise',t:'Für Elise (Anfang)',c:'Beethoven · beidhändig',lv:3,bpm:140,bar:3,pick:1,v:[
    ['r','E5/.5 D#5/.5 E5/.5 D#5/.5 E5/.5 B4/.5 D5/.5 C5/.5 A4/1 r/.5 C4/.5 E4/.5 A4/.5 B4/1 r/.5 E4/.5 G#4/.5 B4/.5 C5/1 r/.5 E4/.5 E5/.5 D#5/.5 E5/.5 D#5/.5 E5/.5 B4/.5 D5/.5 C5/.5 A4/1 r/.5 C4/.5 E4/.5 A4/.5 B4/1 r/.5 E4/.5 C5/.5 B4/.5 A4/3'],
    ['l','r/4 A2/.5 E3/.5 A3/.5 r/1.5 E2/.5 E3/.5 G#3/.5 r/1.5 A2/.5 E3/.5 A3/.5 r/1.5 r/3 A2/.5 E3/.5 A3/.5 r/1.5 E2/.5 E3/.5 G#3/.5 r/1.5 A2/.5 E3/.5 A3/2']]},
- {id:'bach',t:'Präludium in C (Takt 1–4)',c:'J. S. Bach · beidhändig',lv:3,bpm:130,v:[
+ {id:'bach',t:'Präludium in C (Takt 1–4)',c:'J. S. Bach · beidhändig',lv:3,bpm:130,bar:8,v:[
    ['l','C3/4 C3/4 C3/4 C3/4 B2/4 B2/4 C3/4 C3/4'],
    ['l',R('r/.5 E3/3.5',2)+R('r/.5 D3/3.5',4)+R('r/.5 E3/3.5',2)],
    ['r',R('r/1 G4/.5 C5/.5 E5/.5 G4/.5 C5/.5 E5/.5',2)+R('r/1 A4/.5 D5/.5 F5/.5 A4/.5 D5/.5 F5/.5',2)+R('r/1 G4/.5 D5/.5 F5/.5 G4/.5 D5/.5 F5/.5',2)+R('r/1 G4/.5 C5/.5 E5/.5 G4/.5 C5/.5 E5/.5',2)]]},
@@ -366,9 +366,9 @@ function draw(t){
     if(g.black){ctx.fillStyle=C['--panel'];ctx.globalAlpha=.55;ctx.fillRect(g.x,0,g.w,hitY);ctx.globalAlpha=1}
     if(m%12===0){ctx.fillStyle=C['--line'];ctx.fillRect(g.x,0,1,hitY)}}
   // Taktlinien
-  const beatsPerBar=song.id==='elise'?3:(song.id==='menuett'?3:4);
+  const beatsPerBar=song.bar||4,pick=song.pick||0;
   for(let b=Math.ceil(pos);b<=pos+hitY/ppb+1;b++){
-    const y=hitY-(b-pos)*ppb;ctx.fillStyle=C['--line'];ctx.globalAlpha=b%beatsPerBar===0?.9:.35;ctx.fillRect(0,y,W,b%beatsPerBar===0?1.5:1)}
+    const y=hitY-(b-pos)*ppb;ctx.fillStyle=C['--line'];const isBar=((b-pick)%beatsPerBar+beatsPerBar)%beatsPerBar===0;ctx.globalAlpha=isBar?.9:.35;ctx.fillRect(0,y,W,isBar?1.5:1)}
   ctx.globalAlpha=1;
 
   // Noten
