@@ -79,6 +79,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;font:500 .72rem var(--mono);color:var(--muted)}
 .hands{display:inline-flex;gap:5px;align-items:center}
 .hands i{width:8px;height:8px;border-radius:2px;background:var(--rh)}.hands i.l{background:var(--lh)}
+.song.add{border-style:dashed;background:#ffffff06;place-content:center;justify-items:center;text-align:center;min-height:118px;gap:4px}
+.song.add .plus{font-size:1.7rem;line-height:1;color:var(--rh)}
+.song.add small{max-width:30ch}
+.del{position:absolute;right:8px;bottom:8px;font:600 .72rem var(--display);padding:3px 9px;border-radius:999px;background:transparent;color:var(--muted);border:1px solid var(--line)}
+.del.armed{background:var(--warn);color:#fff;border-color:transparent}
+.song.custom .meta{padding-right:70px}
 #menuNote{color:var(--warn);font-size:.85rem;margin-top:10px}
 #menuNote:empty{display:none}
 
@@ -135,6 +141,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <label class="chip"><input type="checkbox" id="noMic"> Ohne Mikrofon (Tasten antippen)</label>
   </div>
   <div id="menuNote"></div>
+  <input type="file" id="importFile" accept=".mid,.midi,.musicxml,.xml,.mxl,audio/midi,audio/x-midi" hidden>
   <div id="list"></div>
 </div></div>
 
@@ -211,11 +218,15 @@ const SONGS=[
  {id:'nachtmusik',t:'Eine kleine Nachtmusik (Anfang)',c:'W. A. Mozart',lv:2,bpm:120,v:[['r','G4/1 r/.5 D4/.5 G4/1 r/.5 D4/.5 G4/.5 D4/.5 G4/.5 B4/.5 D5/2 C5/1 r/.5 A4/.5 C5/1 r/.5 A4/.5 C5/.5 A4/.5 F#4/.5 A4/.5 D4/2']]},
  {id:'bergkoenig',t:'In der Halle des Bergkönigs',c:'E. Grieg · Thema',lv:2,bpm:110,v:[['r',R('A3/.5 B3/.5 C4/.5 D4/.5 E4/.5 C4/.5 E4/1 D#4/.5 B3/.5 D#4/1 D4/.5 Bb3/.5 D4/1 A3/.5 B3/.5 C4/.5 D4/.5 E4/.5 C4/.5 E4/.5 A4/.5 G4/.5 E4/.5 C4/.5 E4/.5 G4/2',2)]]},
  {id:'turca',t:'Türkischer Marsch (Anfang)',c:'W. A. Mozart',lv:3,bpm:130,pick:2,v:[['r','B4/.5 A4/.5 G#4/.5 A4/.5 C5/1 r/1 D5/.5 C5/.5 B4/.5 C5/.5 E5/1 r/1 F5/.5 E5/.5 D#5/.5 E5/.5 B5/.5 A5/.5 G#5/.5 A5/.5 B5/.5 A5/.5 G#5/.5 A5/.5 C6/4']]},
-];SONGS.forEach(s=>{
-  s.notes=s.v.flatMap(([h,str])=>parseVoice(str,h)).sort((a,b)=>a.s-b.s||a.m-b.m);
-  s.two=new Set(s.v.map(x=>x[0])).size>1;
+];
+function prepSong(s){
+  if(!s.notes)s.notes=s.v.flatMap(([h,str])=>parseVoice(str,h));
+  s.notes.sort((a,b)=>a.s-b.s||a.m-b.m);
+  s.two=new Set(s.notes.map(n=>n.hand)).size>1;
   s.lo=Math.min(...s.notes.map(n=>n.m));s.hi=Math.max(...s.notes.map(n=>n.m));
-});
+  return s;
+}
+SONGS.forEach(prepSong);
 
 // ---------- Zustand ----------
 const $=id=>document.getElementById(id);
@@ -470,25 +481,189 @@ $('restart').onclick=restart;$('again').onclick=restart;
 // ---------- Menü ----------
 const LV=['','Leicht','Mittel','Schwer'];
 function bestOf(id){const v=+load('tt-best-'+id);return v>0?v:0}
+// ---------- Eigene Lieder (Import aus MIDI / MusicXML) ----------
+let CUSTOM=[];
+function loadCustom(){
+  try{CUSTOM=(JSON.parse(load('tt-custom')||'[]')).map(c=>prepSong({...c,notes:c.n.map(([m,s,l,h])=>({m,s,l,hand:h}))}))}catch(e){CUSTOM=[]}
+}
+function saveCustom(){
+  store('tt-custom',JSON.stringify(CUSTOM.map(c=>({id:c.id,t:c.t,c:c.c,lv:c.lv,bpm:c.bpm,bar:c.bar,pick:c.pick,n:c.notes.map(n=>[n.m,+n.s.toFixed(4),+n.l.toFixed(4),n.hand])}))));
+  return load('tt-custom')!==null;
+}
+const allSongs=()=>[...SONGS,...CUSTOM];
+function readVLQ(d,p){let v=0,b;do{b=d[p.i++];v=v*128+(b&127)}while(b&128&&p.i<d.length);return v}
+function parseMidi(buf){
+  const d=new Uint8Array(buf),dv=new DataView(buf),str=(o,n)=>String.fromCharCode(...d.subarray(o,o+n));
+  if(str(0,4)!=='MThd')throw new Error('Das ist keine MIDI-Datei.');
+  const hl=dv.getUint32(4),ntr=dv.getUint16(10),div=dv.getUint16(12);
+  if(div&0x8000)throw new Error('Diese MIDI-Datei nutzt eine Zeitbasis (SMPTE), die nicht unterstützt wird.');
+  let o=8+hl,tempo=0,bar=0,title='';const groups=[];
+  for(let t=0;t<ntr&&o+8<=d.length;t++){
+    const len=dv.getUint32(o+4),end=Math.min(d.length,o+8+len);
+    if(str(o,4)!=='MTrk'){o=end;continue}
+    const p={i:o+8},on=new Map(),notes=[];let tick=0,run=0;
+    while(p.i<end){
+      tick+=readVLQ(d,p);let st=d[p.i];
+      if(st<0x80)st=run;else{p.i++;if(st<0xF0)run=st}
+      if(st===0xFF){const type=d[p.i++],l=readVLQ(d,p);
+        if(type===0x51&&!tempo)tempo=60000000/((d[p.i]<<16)|(d[p.i+1]<<8)|d[p.i+2]);
+        if(type===0x58&&!bar)bar=d[p.i]*4/Math.pow(2,d[p.i+1]);
+        if(type===0x03&&t===0&&!title)title=new TextDecoder().decode(d.subarray(p.i,p.i+l)).trim();
+        p.i+=l;continue}
+      if(st===0xF0||st===0xF7){p.i+=readVLQ(d,p);continue}
+      const hi=st&0xF0,ch=st&15;
+      if(hi===0x90||hi===0x80){const k=d[p.i++],v=d[p.i++],key=ch*128+k;
+        if(hi===0x90&&v>0){if(!on.has(key))on.set(key,[]);on.get(key).push(tick)}
+        else{const q=on.get(key);if(q&&q.length){const s0=q.shift();if(ch!==9)notes.push({m:k,s:s0/div,l:Math.max(tick-s0,1)/div,g:t*16+ch})}}}
+      else if(hi===0xC0||hi===0xD0)p.i+=1;else p.i+=2;
+    }
+    groups.push(...notes);o=end;
+  }
+  return {notes:groups,tempo,bar,title};
+}
+async function unzip(buf){
+  const d=new Uint8Array(buf),dv=new DataView(buf);let e=d.length-22;
+  while(e>=0&&dv.getUint32(e,true)!==0x06054b50)e--;
+  if(e<0)throw new Error('Die .mxl-Datei ist beschädigt.');
+  const n=dv.getUint16(e+10,true);let cd=dv.getUint32(e+16,true);const files={};
+  for(let i=0;i<n;i++){
+    const comp=dv.getUint16(cd+10,true),cs=dv.getUint32(cd+20,true),nl=dv.getUint16(cd+28,true),el=dv.getUint16(cd+30,true),cl=dv.getUint16(cd+32,true),lo=dv.getUint32(cd+42,true);
+    const name=new TextDecoder().decode(d.subarray(cd+46,cd+46+nl));
+    const off=lo+30+dv.getUint16(lo+26,true)+dv.getUint16(lo+28,true);
+    files[name]={comp,data:d.subarray(off,off+cs)};cd+=46+nl+el+cl;
+  }
+  return files;
+}
+async function inflate(f){
+  if(f.comp===0)return f.data;
+  if(typeof DecompressionStream==='undefined')throw new Error('Dein Browser kann .mxl nicht entpacken. Lade bei MuseScore „MIDI“ oder unkomprimiertes MusicXML herunter.');
+  const st=new Blob([f.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+async function mxlToText(buf){
+  const files=await unzip(buf),td=new TextDecoder();let root=null;
+  if(files['META-INF/container.xml']){const c=td.decode(await inflate(files['META-INF/container.xml']));const m=/full-path="([^"]+)"/.exec(c);if(m)root=m[1]}
+  if(!root||!files[root])root=Object.keys(files).find(k=>/\.(musicxml|xml)$/i.test(k)&&!k.startsWith('META-INF'));
+  if(!root)throw new Error('In der .mxl-Datei wurde keine Partitur gefunden.');
+  return td.decode(await inflate(files[root]));
+}
+function parseMusicXML(text){
+  const doc=new DOMParser().parseFromString(text,'application/xml');
+  if(doc.getElementsByTagName('parsererror').length)throw new Error('Die MusicXML-Datei konnte nicht gelesen werden.');
+  const q=sel=>doc.querySelector(sel)?.textContent?.trim()||'';
+  const title=q('work-title')||q('movement-title');
+  const PC={C:0,D:2,E:4,F:5,G:7,A:9,B:11};let tempo=0,bar=0;const out=[];
+  [...doc.getElementsByTagName('part')].forEach((part,pi)=>{
+    let divs=1,time=0,last=0;const ties=new Map();
+    for(const meas of part.children){if(meas.tagName!=='measure')continue;
+      for(const el of meas.children){
+        const tag=el.tagName,dur=()=>+(el.getElementsByTagName('duration')[0]?.textContent||0);
+        if(tag==='attributes'){const dvs=el.getElementsByTagName('divisions')[0];if(dvs)divs=+dvs.textContent||1;
+          const bt=el.getElementsByTagName('beats')[0],by=el.getElementsByTagName('beat-type')[0];if(bt&&by&&!bar)bar=+bt.textContent*4/+by.textContent}
+        else if(tag==='sound'||tag==='direction'){const snd=tag==='sound'?el:el.getElementsByTagName('sound')[0];if(snd&&snd.getAttribute('tempo')&&!tempo)tempo=+snd.getAttribute('tempo')}
+        else if(tag==='backup')time-=dur();
+        else if(tag==='forward')time+=dur();
+        else if(tag==='note'){
+          if(el.getElementsByTagName('grace').length)continue;
+          const isChord=el.getElementsByTagName('chord').length>0,dd=dur();
+          const start=isChord?last:time;if(!isChord){last=time;time+=dd}
+          const pitch=el.getElementsByTagName('pitch')[0];if(!pitch)continue;
+          const g=t=>pitch.getElementsByTagName(t)[0]?.textContent;
+          const m=12*(+g('octave')+1)+PC[g('step')]+Math.round(+(g('alter')||0));
+          const staff=+(el.getElementsByTagName('staff')[0]?.textContent||1);
+          const tt=[...el.getElementsByTagName('tie')].map(x=>x.getAttribute('type')),key=pi+'|'+staff+'|'+m;
+          if(tt.includes('stop')&&ties.has(key)){const n=ties.get(key);n.l+=dd/divs;if(!tt.includes('start'))ties.delete(key);continue}
+          const n={m,s:start/divs,l:dd/divs,g:pi*16+staff,staff};out.push(n);
+          if(tt.includes('start'))ties.set(key,n);
+        }
+      }
+    }
+  });
+  return {notes:out,tempo,bar,title};
+}
+// Gelesene Noten in ein spielbares Lied umwandeln
+function buildImported(r,fileName){
+  let ns=r.notes.filter(n=>n.m>=21&&n.m<=108&&n.l>0);
+  if(!ns.length)throw new Error('In der Datei wurden keine Noten gefunden.');
+  const qz=x=>Math.round(x*24)/24;
+  ns.forEach(n=>{n.s=qz(n.s);n.l=Math.max(1/8,qz(n.l))});
+  // Hände: Notensystem 2 = links; sonst die Spur mit höheren Tönen rechts; sonst Teilung am mittleren C
+  const hasStaff2=ns.some(n=>n.staff===2);
+  const grp=[...new Set(ns.map(n=>n.g))];
+  if(hasStaff2)ns.forEach(n=>n.hand=n.staff===2?'l':'r');
+  else if(grp.length>=2){
+    const mean=g=>{const a=ns.filter(n=>n.g===g);return a.reduce((x,n)=>x+n.m,0)/a.length};
+    const top=grp.reduce((a,b)=>mean(a)>=mean(b)?a:b);ns.forEach(n=>n.hand=n.g===top?'r':'l');
+  }else ns.forEach(n=>n.hand=n.m>=60?'r':'l');
+  // doppelte Töne entfernen, am Anfang Pausen abschneiden
+  const seen=new Set();ns=ns.filter(n=>{const k=n.m+'@'+n.s;if(seen.has(k))return false;seen.add(k);return true});
+  const first=Math.min(...ns.map(n=>n.s));ns.forEach(n=>n.s-=first);
+  const bar=r.bar>0?r.bar:4,pick=((-first)%bar+bar)%bar;
+  const total=Math.max(...ns.map(n=>n.s+n.l)),dens=ns.length/Math.max(1,total);
+  const two=new Set(ns.map(n=>n.hand)).size>1;
+  const lv=(two&&dens>2.2)||dens>3?3:(two||dens>1.3?2:1);
+  const t=(r.title||fileName.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ')).slice(0,60)||'Eigenes Lied';
+  return prepSong({id:'c'+Date.now().toString(36),t,c:'Eigenes Lied',lv,bpm:Math.round(r.tempo>20&&r.tempo<300?r.tempo:100),bar,pick,
+    notes:ns.map(n=>({m:n.m,s:n.s,l:n.l,hand:n.hand}))});
+}
+async function importFile(file){
+  const note=$('menuNote');note.style.color='';note.textContent='Lese „'+file.name+'“ …';
+  try{
+    const buf=await file.arrayBuffer(),u=new Uint8Array(buf);let r;
+    if(u[0]===0x4D&&u[1]===0x54&&u[2]===0x68&&u[3]===0x64)r=parseMidi(buf);
+    else if(u[0]===0x50&&u[1]===0x4B)r=parseMusicXML(await mxlToText(buf));
+    else{const txt=new TextDecoder().decode(u);
+      if(!/^\s*(\ufeff)?\s*</.test(txt))throw new Error('Dateiformat nicht erkannt. Bitte eine MIDI-Datei (.mid) oder MusicXML (.musicxml, .mxl) wählen.');
+      r=parseMusicXML(txt)}
+    const song=buildImported(r,file.name);
+    CUSTOM.push(song);
+    if(!saveCustom()){CUSTOM.pop();throw new Error('Nicht genug Speicherplatz im Browser, um das Lied zu sichern.')}
+    note.style.color='var(--ok)';note.textContent=`„${song.t}“ hinzugefügt: ${song.notes.length} Töne, ${song.two?'2 Hände':'1 Hand'}.`;
+    buildMenu();
+  }catch(e){note.style.color='';note.textContent='Import fehlgeschlagen: '+(e.message||e)}
+}
+$('importFile').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)importFile(f)};
+
+function songCard(s,custom){
+  const b=document.createElement('button');b.className='song'+(custom?' custom':'');b.type='button';
+  const left=(s.lo-21)/88*100,width=(s.hi-s.lo+1)/88*100,best=bestOf(s.id);
+  b.innerHTML=`<div class="top"><div><b></b><small></small></div>${best?`<span class="badge">✓ ${best} s</span>`:''}</div>
+    <div class="range" title="Tonumfang"><span style="left:${left}%;width:${width}%"></span></div>
+    <div class="meta"><span class="hands">${s.two?'<i class="l"></i><i></i> 2 Hände':'<i></i> 1 Hand'}</span><span>${noteName(s.lo)}–${noteName(s.hi)}</span></div>`;
+  b.querySelector('b').textContent=s.t;b.querySelector('small').textContent=custom?`${s.c} · ${LV[s.lv].toLowerCase()} · ${s.notes.length} Töne`:s.c;
+  b.onclick=()=>chooseSong(s);
+  if(custom){
+    const del=document.createElement('span');del.className='del';del.textContent='Löschen';del.setAttribute('role','button');del.tabIndex=0;
+    let timer=null;
+    const act=ev=>{ev.stopPropagation();
+      if(!del.classList.contains('armed')){del.classList.add('armed');del.textContent='Wirklich?';timer=setTimeout(()=>{del.classList.remove('armed');del.textContent='Löschen'},3000);return}
+      clearTimeout(timer);CUSTOM=CUSTOM.filter(c=>c.id!==s.id);saveCustom();buildMenu()};
+    del.onclick=act;del.onkeydown=ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();act(ev)}};
+    b.append(del);
+  }
+  return b;
+}
 function buildMenu(){
   const list=$('list');list.textContent='';
+  // Eigene Lieder
+  const sec=document.createElement('div');sec.className='sec';
+  sec.innerHTML=`<h2>Eigene Lieder</h2><span>${CUSTOM.length?CUSTOM.length+' Stücke':'MIDI oder MusicXML'}</span>`;
+  const grid=document.createElement('div');grid.className='grid';
+  const add=document.createElement('button');add.className='song add';add.type='button';
+  add.innerHTML='<span class="plus">＋</span><b>Lied importieren</b><small>MIDI- oder MusicXML-Datei öffnen, z. B. von MuseScore heruntergeladen</small>';
+  add.onclick=()=>$('importFile').click();
+  grid.append(add,...CUSTOM.map(s=>songCard(s,true)));
+  list.append(sec,grid);
   for(const lv of [1,2,3]){
     const songs=SONGS.filter(s=>s.lv===lv);if(!songs.length)continue;
     const sec=document.createElement('div');sec.className='sec';
     sec.innerHTML=`<span class="dots l${lv}"><i></i><i></i><i></i></span><h2>${LV[lv]}</h2><span>${songs.length} Stücke</span>`;
     const grid=document.createElement('div');grid.className='grid';
-    for(const s of songs){
-      const b=document.createElement('button');b.className='song';b.type='button';
-      const left=(s.lo-21)/88*100,width=(s.hi-s.lo+1)/88*100,best=bestOf(s.id);
-      b.innerHTML=`<div class="top"><div><b></b><small></small></div>${best?`<span class="badge">✓ ${best} s</span>`:''}</div>
-        <div class="range" title="Tonumfang"><span style="left:${left}%;width:${width}%"></span></div>
-        <div class="meta"><span class="hands">${s.two?'<i class="l"></i><i></i> 2 Hände':'<i></i> 1 Hand'}</span><span>${noteName(s.lo)}–${noteName(s.hi)}</span></div>`;
-      b.querySelector('b').textContent=s.t;b.querySelector('small').textContent=s.c;
-      b.onclick=()=>chooseSong(s);grid.append(b);
-    }
+    songs.forEach(s=>grid.append(songCard(s,false)));
     list.append(sec,grid);
   }
 }
+loadCustom();
 buildMenu();
 function setNames(mode){
   if(!NAME_SETS[mode])mode='de';namesMode=mode;NAMES=NAME_SETS[mode];store('tt-names',mode);
@@ -515,7 +690,7 @@ function openMenu(){buildMenu();$('menu').hidden=false;$('menu').scrollTop=0;doc
 $('openMenu').onclick=openMenu;$('toMenu').onclick=openMenu;
 
 // Startzustand: Menü offen, im Hintergrund das zuletzt gespielte Lied
-resize();loadSong(SONGS.find(s=>s.id===load('tt-song'))||SONGS[0]);
+resize();loadSong(allSongs().find(s=>s.id===load('tt-song'))||SONGS[0]);
 requestAnimationFrame(draw);
 </script>
 </body>
